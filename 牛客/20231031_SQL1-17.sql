@@ -7,7 +7,8 @@ age int ,
 university varchar(32) NOT NULL,
 province varchar(32)  NOT NULL,
 gpa float);
-INSERT INTO user_profile VALUES(1,2138,'male',21,'北京大学','BeiJing',3.4),
+INSERT INTO user_profile 
+VALUES(1,2138,'male',21,'北京大学','BeiJing',3.4),
 (2,3214,'male',null,'复旦大学','Shanghai',4.0),
 (3,6543,'female',20,'北京大学','BeiJing',3.2),
 (4,2315,'female',23,'浙江大学','ZheJiang',3.6),
@@ -52,18 +53,58 @@ WHERE university='北京大学' OR university='复旦大学' OR university='山�
 /*14.题目：现在运营想要找到gpa在3.5以上(不包括3.5)的山东大学用户 或 gpa在3.8以上(不包括3.8)的复旦大学同学进行用户调研，请你取出相应数据*/
 SELECT device_id,gender,age,university,gpa FROM user_profile
 WHERE (gpa>3.5 AND university='山东大学') OR (gpa>3.8 AND university='复旦大学');
+
 /*15.题目：现在运营想查看所有大学中带有北京的用户的信息，请你取出相应数据*/
+/*表格與前面題目不相同*/
+DROP TABLE user_profile;
+CREATE TABLE user_profile(
+id int NOT NULL,
+device_id int NOT NULL,
+gender varchar(14) NOT NULL,
+age int ,
+university varchar(32) NOT NULL,
+gpa float);
+INSERT INTO user_profile 
+VALUES(1,2138,'male',21,'北京大学',3.4),
+(2,3214,'male',null,'复旦大学',4.0),
+(3,6543,'female',20,'北京大学',3.2),
+(4,2315,'female',23,'浙江大学',3.6),
+(5,5432,'male',25,'山东大学',3.8),
+(6,2131,'male',28,'北京师范大学',3.3);
+
 SELECT device_id,age,university FROM user_profile
 WHERE university LIKE "%北京%";
-/*16.题目：运营想要知道复旦大学学生gpa最高值是多少，请你取出相应数据*/
-SELECT MAX(gpa) FROM user_profile
-WHERE university="复旦大学";
+/*17題table與15題相同，所以放在這*/
 /*17.题目：现在运营想要看一下男性用户有多少人以及他们的平均gpa是多少，用以辅助设计相关活动，请你取出相应数据*/
 SELECT COUNT(id) AS male_num, AVG(gpa) AS avg_gpa FROM user_profile
 WHERE gender="male";
 /*AVG(gpa)用ROUND(AVG(gpa), 1)更好*/
 SELECT COUNT(id) AS male_num, ROUND(AVG(gpa),1) AS avg_gpa FROM user_profile
 WHERE gender="male";
+
+
+
+/*16.题目：运营想要知道复旦大学学生gpa最高值是多少，请你取出相应数据*/
+DROP TABLE user_profile;
+CREATE TABLE user_profile(
+id int NOT NULL,
+device_id int NOT NULL,
+gender varchar(14) NOT NULL,
+age int ,
+university varchar(32) NOT NULL,
+gpa float);
+INSERT INTO user_profile 
+VALUES(1,2234,'male',21,'北京大学',3.2),
+(2,2235,'male',null,'复旦大学',3.8),
+(3,2236,'female',20,'复旦大学',3.5),
+(4,2237,'female',23,'浙江大学',3.3),
+(5,2238,'male',25,'复旦大学',3.1),
+(6,2239,'male',25,'北京大学',3.6),
+(7,2240,'male',null,'清华大学',3.3),
+(8,2241,'female',null,'北京大学',3.7);
+
+SELECT MAX(gpa) as gpa FROM user_profile
+WHERE university="复旦大学";
 
 
 
