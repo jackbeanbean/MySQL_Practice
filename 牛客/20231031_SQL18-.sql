@@ -63,7 +63,6 @@ WHERE university="浙江大学");
 SELECT * FROM question_practice_detail
 LEFT JOIN user_profile
 	ON question_practice_detail.device_id=user_profile.device_id;
-
 /*將需要顯示的資料放在select後面(COUNT的計算要看清楚)*/
 SELECT university,COUNT(question_practice_detail.question_id)/COUNT(DISTINCT question_practice_detail.device_id) AS avg_answer_cnt FROM question_practice_detail
 LEFT JOIN user_profile
@@ -150,7 +149,7 @@ WHERE
     t2.question_id=t3.question_id
 GROUP BY t1.university,t3.difficult_level;
 
-/*23.题目：运营想要查看参加了答题的山东大学的用户在不同难度下的平均答题题目数，请取出相应数据*/
+/*24.题目：运营想要查看参加了答题的山东大学的用户在不同难度下的平均答题题目数，请取出相应数据*/
 /*3表連接*/
 SELECT * FROM question_practice_detail
 LEFT JOIN user_profile
@@ -191,6 +190,61 @@ WHERE
     and t2.question_id = t3.question_id
 GROUP BY
     t3.difficult_level;
+
+/*25.题目：现在运营想要分别查看学校为山东大学或者性别为男性的用户的device_id、gender、age和gpa数据，请取出相应结果，结果不去重*/
+SELECT device_id,gender,age,gpa FROM user_profile
+WHERE university="山东大学"
+UNION ALL
+SELECT device_id,gender,age,gpa FROM user_profile
+WHERE gender="male";
+
+/*26.题目：现在运营想要将用户划分为25岁以下和25岁及以上两个年龄段，分别查看这两个年龄段用户数量
+本题注意：age为null 也记为 25岁以下*/
+SELECT 
+CASE
+	WHEN age>=25 THEN "25岁及以上"
+    ELSE "25岁以下"
+END AS age_cut,
+COUNT(CASE
+	WHEN age>=25 THEN "25岁及以上"
+    ELSE "25岁以下"
+END) AS number
+FROM user_profile
+GROUP BY age_cut;
+
+SELECT 
+CASE
+	WHEN age>=25 THEN "25岁及以上"
+    ELSE "25岁以下"
+END AS age_cut,
+COUNT(*) AS number /*這邊用*就好，因為後面有GROUP BY了*/
+FROM user_profile
+GROUP BY age_cut;
+
+/*用IF的寫法*/
+SELECT 
+	IF(age>=25,"25岁及以上","25岁以下") AS age_cut,
+    COUNT(*)
+FROM user_profile
+GROUP BY age_cut;
+
+
+/*27.题目：现在运营想要将用户划分为20岁以下，20-24岁，25岁及以上三个年龄段，分别查看不同年龄段用户的明细情况，请取出相应数据。（注：若年龄为空请返回其他。）*/
+SELECT device_id,gender,
+CASE
+    WHEN age>24 THEN "25岁及以上"
+    WHEN 20<=age<=24 THEN "20-24岁"
+    WHEN age<20 THEN "20岁以下"
+    ELSE "其他"
+END AS "age_cut"
+FROM user_profile;
+
+
+
+
+
+
+
 
 
 
