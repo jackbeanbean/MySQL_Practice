@@ -224,7 +224,7 @@ GROUP BY age_cut;
 /*用IF的寫法*/
 SELECT 
 	IF(age>=25,"25岁及以上","25岁以下") AS age_cut,
-    COUNT(*)
+    COUNT(*) AS number
 FROM user_profile
 GROUP BY age_cut;
 
@@ -239,12 +239,102 @@ CASE
 END AS "age_cut"
 FROM user_profile;
 
+/*28.*/
+/*難*/
+drop table if  exists `question_practice_detail`;
+CREATE TABLE `question_practice_detail` (
+`id` int NOT NULL,
+`device_id` int NOT NULL,
+`question_id`int NOT NULL,
+`result` varchar(32) NOT NULL,
+`date` date NOT NULL
+);
+INSERT INTO question_practice_detail 
+VALUES(1,2138,111,'wrong','2021-05-03'),
+(2,3214,112,'wrong','2021-05-09'),
+(3,3214,113,'wrong','2021-06-15'),
+(4,6543,111,'right','2021-08-13'),
+(5,2315,115,'right','2021-08-13'),
+(6,2315,116,'right','2021-08-14'),
+(7,2315,117,'wrong','2021-08-15'),
+(8,3214,112,'wrong','2021-05-09'),
+(9,3214,113,'wrong','2021-08-15'),
+(10,6543,111,'right','2021-08-13'),
+(11,2315,115,'right','2021-08-13'),
+(12,2315,116,'right','2021-08-14'),
+(13,2315,117,'wrong','2021-08-15'),
+(14,3214,112,'wrong','2021-08-16'),
+(15,3214,113,'wrong','2021-08-18'),
+(16,6543,111,'right','2021-08-13');
 
+/*题目：现在运营想要计算出2021年8月每天用户练习题目的数量，请取出相应数据*/
+SELECT
+    day (date) AS day,
+    COUNT(question_id) AS question_cnt
+FROM
+    question_practice_detail
+WHERE
+    year (date) = 2021
+    AND month (date) = 08
+GROUP BY
+    date;
 
+/*29.题目：现在运营想要查看用户在某天刷题后第二天还会再来刷题的平均概率。请你取出相应数据*/
+SELECT * FROM question_practice_detail;
+/*步驟一*/
+/*因為這邊SELECT後面是顯示device_id, date，所以這邊的DISTINCT會塞選，是當device_id, date都相同時，才不會顯示多的*/
+	/*比如說ID=1學生，在8/12做了QID=1的題目兩次，那只會顯示"同天同一題"一次，若當天還有做QID=2一次，那原資料(3筆)DISTINCT後，會剩下兩筆*/
+select distinct device_id, date
+        from question_practice_detail;
+/*步驟二*/
+/*為了找出第二天是否有做題目，這邊要將同一張表做兩次(left join)，且兩表都要DISTINCT(因為只要看後面一天有沒有做題目，不管你做幾題)*/
+/*第一張=qpd，第二張=uniq_id_date*/
+/*等於是說，列出在同一個device_id下，所有"有做題目"的date排列組合*/
+	/*舉例來說，id=1的學生，day1,2,3各做兩題，且同一天的題目相同，所以DISTINCT後，只剩下3筆*/
+	/*使用LEFT JOIN後，會有11,12,13,21,22,23,31,32,33，共9種組合*/
+select distinct qpd.device_id,
+        qpd.date as date1,
+        uniq_id_date.date as date2
+    from question_practice_detail as qpd
+left join(
+        select distinct device_id, date
+        from question_practice_detail
+    ) as uniq_id_date
+    on qpd.device_id=uniq_id_date.device_id;
+/*步驟三*/
+/*再來，為了找date2是否為date1的前一天，必須在on加上date_add(qpd.date, interval 1 day)=uniq_id_date.date*/
+/*這樣表示在LEFT JOIN時，要同時符合device_id=device_id，還要符合"date1+1天"=date2*/
+/*因為是LEFT JOIN，所以當date2不符合時，會給予NULL*/
+select distinct qpd.device_id,
+        qpd.date as date1,
+        uniq_id_date.date as date2
+    from question_practice_detail as qpd
+left join(
+        select distinct device_id, date
+        from question_practice_detail
+    ) as uniq_id_date
+    on qpd.device_id=uniq_id_date.device_id
+		and date_add(qpd.date, interval 1 day)=uniq_id_date.date;/*多加一個條件來符合"date1+1天"=date2*/
+/*步驟四*/
+/*當我有上述date1,date2的表時，就可以計算出有多少學生(device_id)，date1練習後，date2也有練習*/
+SELECT COUNT(id_last_next_date.date2)/COUNT(id_last_next_date.date1) AS avg_ret
+FROM(
+	select distinct qpd.device_id,
+			qpd.date as date1,
+			uniq_id_date.date as date2
+		from question_practice_detail as qpd
+	left join(
+			select distinct device_id, date
+			from question_practice_detail
+		) as uniq_id_date
+		on qpd.device_id=uniq_id_date.device_id
+			and date_add(qpd.date, interval 1 day)=uniq_id_date.date) AS id_last_next_date;
 
-
-
-
+    
+    
+    
+    
+    
 
 
 
