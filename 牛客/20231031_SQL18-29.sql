@@ -281,11 +281,13 @@ GROUP BY
 
 /*29.题目：现在运营想要查看用户在某天刷题后第二天还会再来刷题的平均概率。请你取出相应数据*/
 SELECT * FROM question_practice_detail;
+
 /*步驟一*/
 /*因為這邊SELECT後面是顯示device_id, date，所以這邊的DISTINCT會塞選，是當device_id, date都相同時，才不會顯示多的*/
 	/*比如說ID=1學生，在8/12做了QID=1的題目兩次，那只會顯示"同天同一題"一次，若當天還有做QID=2一次，那原資料(3筆)DISTINCT後，會剩下兩筆*/
 select distinct device_id, date
         from question_practice_detail;
+        
 /*步驟二*/
 /*為了找出第二天是否有做題目，這邊要將同一張表做兩次(left join)，且兩表都要DISTINCT(因為只要看後面一天有沒有做題目，不管你做幾題)*/
 /*第一張=qpd，第二張=uniq_id_date*/
@@ -301,6 +303,7 @@ left join(
         from question_practice_detail
     ) as uniq_id_date
     on qpd.device_id=uniq_id_date.device_id;
+    
 /*步驟三*/
 /*再來，為了找date2是否為date1的前一天，必須在on加上date_add(qpd.date, interval 1 day)=uniq_id_date.date*/
 /*這樣表示在LEFT JOIN時，要同時符合device_id=device_id，還要符合"date1+1天"=date2*/
@@ -314,7 +317,8 @@ left join(
         from question_practice_detail
     ) as uniq_id_date
     on qpd.device_id=uniq_id_date.device_id
-		and date_add(qpd.date, interval 1 day)=uniq_id_date.date;/*多加一個條件來符合"date1+1天"=date2*/
+		and date_add(qpd.date, interval 1 day)=uniq_id_date.date ;/*多加一個條件來符合"date1+1天"=date2*/
+        
 /*步驟四*/
 /*當我有上述date1,date2的表時，就可以計算出有多少學生(device_id)，date1練習後，date2也有練習*/
 SELECT COUNT(id_last_next_date.date2)/COUNT(id_last_next_date.date1) AS avg_ret
@@ -330,11 +334,26 @@ FROM(
 		on qpd.device_id=uniq_id_date.device_id
 			and date_add(qpd.date, interval 1 day)=uniq_id_date.date) AS id_last_next_date;
 
-    
-    
-    
-    
-    
+
+-- 題外
+-- 想將剛剛select的資料匯出成csv檔案，
+-- 由於可以更改路徑的my.ini檔(secure-file-priv="檔案路徑位置")(在C:\ProgramData\MySQL\MySQL Server 8.1)起始設定是將檔案匯出到"C:/ProgramData/MySQL/MySQL Server 8.1/Uploads"
+-- 所以在 INTO OUTFILE後面，一定要加上"C:/ProgramData/MySQL/MySQL Server 8.1/Uploads"這段路徑alter
+-- 如果之後想更改匯出的路徑，可以將C:\ProgramData\MySQL\MySQL Server 8.1/my.ini裡面的secure-file-priv=""去更改路徑
+select distinct qpd.device_id,
+        qpd.date as date1,
+        uniq_id_date.date as date2
+       
+    from question_practice_detail as qpd
+left join(
+        select distinct device_id, date
+        from question_practice_detail
+    ) as uniq_id_date
+    on qpd.device_id=uniq_id_date.device_id
+		and date_add(qpd.date, interval 1 day)=uniq_id_date.date 
+         INTO OUTFILE 'C:/ProgramData/MySQL/MySQL Server 8.1/Uploads/output_file2.csv';
+
+show variables like '%secure%';
 
 
 
