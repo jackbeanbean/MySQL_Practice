@@ -1,0 +1,60 @@
+          from pms_sync.booking_rooms
+          
+          LEFT JOIN pms_sync.booking_plans ON booking_plans.id = booking_rooms.plan_id
+          left join pms_sync.bookings ON booking_rooms.booking_id = bookings.id
+          left join pms_sync.booking_room_prices on booking_room_prices.booking_room_id=booking_rooms.id
+          LEFT JOIN (
+                      SELECT
+                        booking_id,
+                        SUM(amount) `amount`
+                      FROM
+                        pms_sync.account_deposits
+                      WHERE
+                        amount > 0
+                        and deleted_at is null
+                      GROUP BY
+                        booking_id
+                    ) account_deposits ON account_deposits.booking_id = bookings.id
+          left join pms_sync.hotel_payments on bookings.hotel_id = hotel_payments.hotel_id and
+                                             bookings.platform_id = hotel_payments.id
+          LEFT JOIN pms_sync.booking_sources ON booking_sources.id = bookings.source_id
+          LEFT JOIN (SELECT SUM(amount) amount, SUM(commission) commission, booking_id FROM pms_sync.all_transactions WHERE amount > 0 and paid_at >0 and deleted_at is null GROUP BY booking_id) plus ON plus.booking_id = bookings.id
+          LEFT join pms_sync.hotels as hotels_all on booking_rooms.hotel_id=hotels_all.id
+          LEFT join analytics.hotels on booking_rooms.hotel_id=hotels.hotel_id
+               
+          left join pms_sync.room_types on booking_rooms.room_type_id = room_types.id
+                                         and booking_rooms.hotel_id = room_types.hotel_id
+                
+                LEFT JOIN (
+                  SELECT
+                    ABS(SUM(amount)) `amount`,
+                    booking_id
+                  FROM
+                    pms_sync.all_transactions
+                  WHERE
+                    amount < 0
+                    and paid_at > 0
+                    and deleted_at is null
+                  GROUP BY
+                    booking_id
+                ) minus ON minus.booking_id = bookings.id
+                # 排除測試訂單
+                where bookings.price > 0
+                      and bookings.price is not null
+                # 排除取消訂單
+                       and booking_rooms.deleted_at is null
+                       # and booking_rooms.booking_id is not null
+                       and booking_rooms.type != 'MAINTAIN'
+                       and bookings.status not in ('CANCELED')
+                # 排除居家檢疫&休息(算OCC時，不應包含該兩類)
+                       and bookings.type not in ('1','3')
+                       and booking_rooms.type != 'MICROSTAY'
+                       and booking_rooms.booking_id not in (select distinct booking_id
+                                                            from pms_sync.microstays)
+                       # and bookings.source != 'BUSINESS_BOOKING'
+                       and bookings.check_in between '%s' and '%s'
+                # 將建北篩選出來
+                       and ((hotels_all.operation_type = 1 AND
+                             hotels_all.status = 'OPEN')  or 
+                             (hotels_all.name = '雀客旅館台北建北'));
+  ",str_date,end_date)) %>% 
