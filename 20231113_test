@@ -1,60 +1,437 @@
-          from pms_sync.booking_rooms
-          
-          LEFT JOIN pms_sync.booking_plans ON booking_plans.id = booking_rooms.plan_id
-          left join pms_sync.bookings ON booking_rooms.booking_id = bookings.id
-          left join pms_sync.booking_room_prices on booking_room_prices.booking_room_id=booking_rooms.id
-          LEFT JOIN (
+      rm(list = ls());gc()
+options(scipen=999)
+SQLlibrary <- c("dplyr","zoo","timeDate","survival","date","RODBC","implyr","RJDBC","RDCOMClient",
+                "readxl","writexl","RCurl","stringr","stringi","data.table","rJava","openxlsx",
+                "magrittr","odbc","dbplyr","lubridate","reshape","tidyr","taskscheduleR","httr","ggplot2",
+                "DBI","RMySQL","ggrepel","scales","googledrive","janitor","googleAnalyticsR")
+
+lapply(SQLlibrary,library,character.only = TRUE)
+
+# Get a list of all database connections
+conns <- dbListConnections(MySQL())
+
+# Disconnect all connections
+sapply(conns, dbDisconnect)
+
+
+source("C:/Users/User.TPEMKNB04/Desktop/敦謙國際/數據分析/CrawlerDB_Password.R")
+
+# 建立連線
+con_crawler <- dbConnect(MySQL(), host = host_crawler, user = username_crawler, password = password_crawler)
+
+# table資訊
+table_crawler_inf <-
+  dbGetQuery(con_crawler,
+             "SELECT TABLE_NAME,TABLE_COMMENT
+              FROM information_schema.tables
+              WHERE table_schema = 'crawler'; ")
+
+# column資訊
+columns_crawler_inf <-
+  dbGetQuery(con_crawler,
+             "SELECT TABLE_NAME,COLUMN_NAME,COLUMN_COMMENT
+              FROM information_schema.columns
+              WHERE table_schema = 'crawler'; ")
+
+source("C:/Users/User.TPEMKNB04/Desktop/敦謙國際/數據分析/PMSDB_Password.R")
+
+# 建?????????
+con_pms <- dbConnect(MySQL(), host = host_pms, user = username_pms, password = password_pms)
+
+# table資???
+table_pms_inf <-
+  dbGetQuery(con_pms,
+             "SELECT TABLE_NAME,TABLE_COMMENT
+              FROM information_schema.tables
+              WHERE table_schema = 'pms_sync'; ")
+# column資???
+columns_pms_inf <-
+  dbGetQuery(con_pms,
+             "SELECT TABLE_NAME,COLUMN_NAME,COLUMN_COMMENT
+              FROM information_schema.columns
+              WHERE table_schema = 'pms_sync'; ")
+
+file_path <- 'C:/Users/User.TPEMKNB04/Desktop/練習用'
+
+setwd(file_path)
+
+
+# 特殊假日表
+date_features <- 
+  dbGetQuery(con_crawler, 
+             "SELECT * 
+              FROM crawler.date_features; ")  
+
+date_features_1 <- 
+  date_features %>% 
+  select(date,vacation_name) %>%  
+  arrange(date,vacation_name) %>%
+  mutate(date = as.Date(date),
+         date_diff = as.numeric(date - lead(date)),
+         holiday = ifelse(date_diff != -1,NA,as.character(date)))
+
+str_date <- '2023-01-01'
+
+end_date <- '2023-11-30'
+
+data_raw  <-
+  dbGetQuery(con_pms,sprintf(
+    "SELECT distinct
+                      datediff(bookings.check_in,bookings.created_at) as LeadTime
+                     ,bookings.created_date as 預定日期
+                     ,booking_room_prices.date as 入住日期
+                     ,canceled_date as 取消日期
+                     ,bookings.check_in
+                     ,hotels.hotels_group as 分區
+                     ,hotels.laster_name as 飯店
+                     ,hotels_all.name as 館
+                     ,bookings.number as 訂單編號
+                     ,bookings.name as 客戶姓名
+                     ,booking_rooms.id as booking_rooms_id
+                     ,booking_room_prices.booking_room_id as booking_room_prices_id
+                     ,CASE
+                      bookings.source
+                      WHEN 'PLATFORM' THEN '平台'
+                      WHEN 'SELF_OPERATION' THEN '自營平台'
+                      WHEN 'ONLINE' THEN '線上'
+                      WHEN 'BUSINESS_BOOKING' THEN '業務預訂'
+                      WHEN 'TELEPHONE' THEN '電話'
+                      WHEN 'KIOSK' THEN '機台'
+                      WHEN 'MEM' THEN '會員平台'
+                      END AS `訂單類別`
+                      ,IF (
+                        bookings.source = 'PLATFORM',
+                        hotel_payments.`name`,
+                        booking_sources.`name`
+                        ) AS `訂單來源`
+                      ,CASE
+                      bookings.payment_status
+                      WHEN 'UNPAID' THEN '未付款'
+                      WHEN 'PAID_IN_FULL' THEN '已付全額'
+                      WHEN 'PAID_IN_PART' THEN '部分已付'
+                      END AS `金流狀況`
+                     ,ROUND(booking_room_prices.price / 100, 0) AS `方案原價`
+                     ,IFNULL(account_deposits.amount / 100, 0) AS `金流入帳`
+                     ,IFNULL(ROUND(plus.amount / 100), 0) AS 已付
+                     ,IFNULL(ROUND(minus.amount / 100), 0) AS `退款`
+                     ,bookings.price/100 as 訂單總額
+                     , booking_plans.name  AS `方案名稱`
+                     ,room_types.zh_room_name as 房型
+                     ,room_types.room_count as 房型房間數
+              
+              from pms_sync.booking_rooms
+              
+              LEFT JOIN pms_sync.booking_plans ON booking_plans.id = booking_rooms.plan_id
+              left join pms_sync.bookings ON booking_rooms.booking_id = bookings.id
+              left join pms_sync.booking_room_prices on booking_room_prices.booking_room_id=booking_rooms.id
+              LEFT JOIN (
+                          SELECT
+                            booking_id,
+                            SUM(amount) `amount`
+                          FROM
+                            pms_sync.account_deposits
+                          WHERE
+                            amount > 0
+                            and deleted_at is null
+                          GROUP BY
+                            booking_id
+                        ) account_deposits ON account_deposits.booking_id = bookings.id
+              left join pms_sync.hotel_payments on bookings.hotel_id = hotel_payments.hotel_id and
+                                                 bookings.platform_id = hotel_payments.id
+              LEFT JOIN pms_sync.booking_sources ON booking_sources.id = bookings.source_id
+              LEFT JOIN (SELECT SUM(amount) amount, SUM(commission) commission, booking_id FROM pms_sync.all_transactions WHERE amount > 0 and paid_at >0 and deleted_at is null GROUP BY booking_id) plus ON plus.booking_id = bookings.id
+              LEFT join pms_sync.hotels as hotels_all on booking_rooms.hotel_id=hotels_all.id
+              LEFT join analytics.hotels on booking_rooms.hotel_id=hotels.hotel_id
+                   
+              left join pms_sync.room_types on booking_rooms.room_type_id = room_types.id
+                                             and booking_rooms.hotel_id = room_types.hotel_id
+                    
+                    LEFT JOIN (
                       SELECT
-                        booking_id,
-                        SUM(amount) `amount`
+                        ABS(SUM(amount)) `amount`,
+                        booking_id
                       FROM
-                        pms_sync.account_deposits
+                        pms_sync.all_transactions
                       WHERE
-                        amount > 0
+                        amount < 0
+                        and paid_at > 0
                         and deleted_at is null
                       GROUP BY
                         booking_id
-                    ) account_deposits ON account_deposits.booking_id = bookings.id
-          left join pms_sync.hotel_payments on bookings.hotel_id = hotel_payments.hotel_id and
-                                             bookings.platform_id = hotel_payments.id
-          LEFT JOIN pms_sync.booking_sources ON booking_sources.id = bookings.source_id
-          LEFT JOIN (SELECT SUM(amount) amount, SUM(commission) commission, booking_id FROM pms_sync.all_transactions WHERE amount > 0 and paid_at >0 and deleted_at is null GROUP BY booking_id) plus ON plus.booking_id = bookings.id
-          LEFT join pms_sync.hotels as hotels_all on booking_rooms.hotel_id=hotels_all.id
-          LEFT join analytics.hotels on booking_rooms.hotel_id=hotels.hotel_id
-               
-          left join pms_sync.room_types on booking_rooms.room_type_id = room_types.id
-                                         and booking_rooms.hotel_id = room_types.hotel_id
-                
-                LEFT JOIN (
-                  SELECT
-                    ABS(SUM(amount)) `amount`,
-                    booking_id
-                  FROM
-                    pms_sync.all_transactions
-                  WHERE
-                    amount < 0
-                    and paid_at > 0
-                    and deleted_at is null
-                  GROUP BY
-                    booking_id
-                ) minus ON minus.booking_id = bookings.id
-                # 排除測試訂單
-                where bookings.price > 0
-                      and bookings.price is not null
-                # 排除取消訂單
-                       and booking_rooms.deleted_at is null
-                       # and booking_rooms.booking_id is not null
-                       and booking_rooms.type != 'MAINTAIN'
-                       and bookings.status not in ('CANCELED')
-                # 排除居家檢疫&休息(算OCC時，不應包含該兩類)
-                       and bookings.type not in ('1','3')
-                       and booking_rooms.type != 'MICROSTAY'
-                       and booking_rooms.booking_id not in (select distinct booking_id
-                                                            from pms_sync.microstays)
-                       # and bookings.source != 'BUSINESS_BOOKING'
-                       and bookings.check_in between '%s' and '%s'
-                # 將建北篩選出來
-                       and ((hotels_all.operation_type = 1 AND
-                             hotels_all.status = 'OPEN')  or 
-                             (hotels_all.name = '雀客旅館台北建北'));
-  ",str_date,end_date)) %>% 
+                    ) minus ON minus.booking_id = bookings.id
+                    # 排除測試訂單
+                    where bookings.price > 0
+                          and bookings.price is not null
+                    # 排除取消訂單
+                           and booking_rooms.deleted_at is null
+                           # and booking_rooms.booking_id is not null
+                           and booking_rooms.type != 'MAINTAIN'
+                           and bookings.status not in ('CANCELED')
+                    # 排除居家檢疫&休息(算OCC時，不應包含該兩類)
+                           and bookings.type not in ('1','3')
+                           and booking_rooms.type != 'MICROSTAY'
+                           and booking_rooms.booking_id not in (select distinct booking_id
+                                                                from pms_sync.microstays)
+                           # and bookings.source != 'BUSINESS_BOOKING'
+                           and bookings.check_in between '%s' and '%s'
+                    # 將建北篩選出來
+                           and ((hotels_all.operation_type = 1 AND
+                                 hotels_all.status = 'OPEN')  or 
+                                 (hotels_all.name = '雀客旅館台北建北'));
+      ",str_date,end_date)) %>% 
+  filter(!grepl('場租服務',房型)) %>% 
+  # select(-c(房型)) %>% 
+  # 原本會刪除房型是因為輸出後會出錯，但20231110測試後，有無此欄位，資料筆數都相同。
+  unique()
+
+data_raw_1 <- 
+  data_raw %>% 
+  mutate(入住時間 = as.Date(check_in),
+         入住日期 = as.Date(入住日期),
+         週幾 = weekdays(入住日期),
+         週幾 = factor(週幾, 
+                     levels = c('星期一','星期二','星期三','星期四','星期五','星期六','星期日')),
+         假旺平日 = case_when(週幾 %in% c('星期六') ~ '假日',
+                          as.character(入住日期) %in% date_features_1$holiday ~ '假日',
+                          週幾 %in% c('星期五') ~ '旺日',
+                          TRUE ~ '平日'
+         ),
+         假旺平日 = factor(假旺平日, 
+                       levels = c('平日','旺日','假日')),
+         # 月是從入住日期來的，算RN可以用這個的"月"來做GROUP
+         # 但如果是要算訂單數，就要使用Check_in來區分"月份"
+         月 = substring(入住日期,1,7),
+         remove_flag = 
+           case_when(月 %in% c('2023-01') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-02') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-03') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-04') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-05') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-06') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店') ~1,
+                     月 %in% c('2023-07') & 館 %in% c('雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店','礁溪麒麟酒店','雀客旅館新北蘆洲') ~1,
+                     月 %in% c('2023-08') & 館 %in% c('福君海悅大飯店','雀客旅館台北建北','雀客藏居台中大墩','永豐棧酒店','礁溪麒麟酒店','雀客旅館新北蘆洲','雀客旅館大阪新今宮') ~1,
+                     TRUE ~ 0
+           ),
+         部門 = case_when(訂單類別 %in% c('業務預訂') ~ '業務',
+                        
+                        訂單類別 %in% c('線上') ~ '訂中',
+                        訂單類別 %in% c('機台') ~ '訂中',
+                        訂單類別 %in% c('自營平台')&
+                          訂單來源 %in% c('電話','守護陣線','旅行家','承攜官方','雀客官方','其他','微信','信件','Snail Home')~ '訂中',
+                        
+                        (訂單類別 %in% c('平台')&
+                           !訂單來源 %in% c('GOMAJI','Momo') ~ '收益'),
+                        TRUE ~ '其他'),
+         ota_訂中_flag =  case_when(訂單類別 %in% c('業務預訂')&grepl('CO',訂單來源) ~ 'CO',
+                                  訂單類別 %in% c('業務預訂')&grepl('Inbound',訂單來源) ~ 'TA',
+                                  訂單類別 %in% c('業務預訂')&grepl('TA',訂單來源) ~ 'TA',
+                                  訂單類別 %in% c('業務預訂') ~ '業務_其他',
+                                  
+                                  訂單類別 %in% c('線上') ~ '訂中_線上',
+                                  訂單類別 %in% c('機台') ~ '訂中_機台',
+                                  訂單類別 %in% c('自營平台')&
+                                    訂單來源 %in% c('電話','守護陣線','旅行家','承攜官方','雀客官方','其他','微信','信件')~ '訂中_自營平台',
+                                  
+                                  (訂單類別 %in% c('平台')&
+                                     !訂單來源 %in% c('GOMAJI','Momo') ~ 'OTA'),
+                                  TRUE ~ '其他'),
+         ota_訂中_flag = factor(ota_訂中_flag, 
+                              levels = c('OTA','訂中_線上','訂中_機台','訂中_自營平台','CO','TA','業務_其他','其他')),
+         area_rank = case_when(分區=='整體' ~ 0,
+                               分區=='宜蘭' ~ 1,
+                               分區=='北區' ~ 2,
+                               分區=='桃竹' ~ 3,
+                               分區=='中部' ~ 4,
+                               分區=='中部1區' ~ 5,
+                               分區=='中部2區' ~ 6,
+                               分區=='南區' ~ 7,
+                               分區=='國外' ~ 8),
+         LeadTime_level =  case_when(LeadTime <= 3 ~ '0~3(含)',
+                                     LeadTime <= 7 ~ '3~7(含)',
+                                     LeadTime <= 10 ~ '7~10(含)',
+                                     LeadTime <= 14 ~ '10~14(含)',
+                                     LeadTime > 14 ~ '14~',
+                                     TRUE ~ '其他'),
+         LeadTime_level = factor(LeadTime_level, 
+                                 levels = c('0~3(含)','3~7(含)','7~10(含)','10~14(含)','14~','其他')),
+         房型 = factor(房型),
+         房型房間數 =房型房間數,
+         # 計算"訂單數"用的月份
+         年月 = format(as.Date(check_in),"%Y-%m"),
+         每月天數 = case_when(年月 == "2023-01" ~ 31,
+                          年月 == "2023-02" ~ 28,
+                          年月 == "2023-03" ~ 31,
+                          年月 == "2023-04" ~ 30,
+                          年月 == "2023-05" ~ 31,
+                          年月 == "2023-06" ~ 30,
+                          年月 == "2023-07" ~ 31,
+                          年月 == "2023-08" ~ 31,
+                          年月 == "2023-09" ~ 30,
+                          年月 == "2023-10" ~ 31,
+                          年月 == "2023-11" ~ 30,
+                          年月 == "2023-12" ~ 31)
+  ) %>%
+  group_by(訂單編號) %>%
+  mutate(營收_日 = round(訂單總額*(方案原價/sum(方案原價))))
+
+
+rooms <-
+  dbGetQuery(con_pms,sprintf(
+    "SELECT   date,
+              analytics_hotels.hotels_group as 分區,
+              hotels.name as 館_全名,
+              analytics_hotels.laster_name as 館_縮寫,
+              available_rooms,
+              maintain_rooms,
+              sold_rooms
+                    
+      FROM pms_sync.report_daily_sales
+             
+      LEFT JOIN pms_sync.hotels 
+        ON report_daily_sales.hotel_id = hotels.id
+      LEFT JOIN analytics.hotels AS analytics_hotels 
+        ON report_daily_sales.hotel_id = analytics_hotels.hotel_id
+# 要問_________________________________________________________________________
+      WHERE ((hotels.operation_type = 1 AND
+              hotels.status = 'OPEN' AND 
+              report_daily_sales.booking_type = -1)  or 
+              (hotels.name = '雀客旅館台北建北' AND
+              report_daily_sales.booking_type = -1)) AND 
+              (date BETWEEN '%s' AND '%s') AND 
+              (report_daily_sales.room_type_id = -1)",
+    str_date,"2023-12-31"))
+# 這邊end_date不是對應2023-11-30，是因為maintain_rooms的日期，是要對應"入住日期"
+
+#-------------------------------------------------------------------------------
+# 利用大表的"飯店"-->"房型"-->"房型房型數"，去計算出每間飯店的房間總數
+room_total<-
+  data_raw_1%>%
+  group_by(飯店,房型)%>%
+  summarise(房型房間數=mean(房型房間數))%>%
+  group_by(飯店)%>%
+  summarise(飯店總房數=sum(房型房間數))
+
+
+# 20231113
+#-------------------------------------------------------------------------------
+test_20231113<-
+  rooms %>%
+  left_join(room_total,by = c("館_縮寫"="飯店")) %>%
+  mutate(當天開賣房間數 = 飯店總房數 - maintain_rooms) %>%
+  # 檢查那些館的數據是NA
+  # table(test_20231113[which(is.na(test_20231113$當天開賣房間數)),]$館_縮寫)
+  # 剃除掉"金邊BKK1"和"金邊皇宮"
+  filter(! 館_縮寫 %in% c('金邊BKK1','金邊皇宮'))
+
+# 訂單數：用check_in去算
+test_20231113_Count <-
+  data_raw_1 %>%
+  group_by(area_rank,check_in,飯店) %>%
+  summarise(訂單數 = n_distinct(訂單編號))
+# RN,ADR：用入住日期去算
+test_20231113_Number <-
+  data_raw_1 %>%
+  group_by(area_rank,入住日期,飯店) %>%
+  summarise(RN = n(),
+            ADR = round(mean(營收_日))) %>%
+  mutate(入住日期 = as.character(入住日期))
+
+# 合併訂單(用check_in)和RN,ADR(用入住日期)
+test_20231113_UsedValue<-
+  test_20231113_Count %>%
+  left_join(test_20231113_Number,
+            by = c('area_rank' = 'area_rank','check_in' = '入住日期','飯店' = '飯店')) %>%
+  # 這邊'check_in' = '入住日期'，可以順便篩選掉"入住日期">20231130的資料。
+  mutate(合併日期 = check_in) %>%
+  mutate(年月=format(as.Date(check_in),"%Y-%m"))
+
+test_20231113_1<-
+  test_20231113 %>%
+  left_join(test_20231113_UsedValue,by = c('館_縮寫' = '飯店','date' = '合併日期')) %>%
+  mutate(OCC = RN / 當天開賣房間數) %>%
+  # 先將OCC>1的=1
+  mutate(Correct_OCC = if_else(OCC>1, 1, OCC)) %>%
+  # 對照用(sold_rooms / 當天開賣房間數)
+  mutate(test_OCC = sold_rooms / 當天開賣房間數) %>%
+  # 用sold_rooms / 當天開賣房間數也會出現>1的情況
+  mutate(test_Correct_OCC = if_else(test_OCC>1, 1, test_OCC))
+
+
+#-------------------------------------------------------------------------------
+# 會有RN>當天開賣房間數的問題，檢查發現：
+# 用booking_rooms的入住日期來計算RN會大於report_daily_sales來得sold_room。
+
+# 檢查：飯店 == "大稻埕" ,入住日期 == "2023-09-30"
+CHECK<-
+  data_raw_1 %>%
+  filter(飯店 == "大稻埕" & 
+           入住日期 == "2023-09-30")
+# 檢查：飯店 == "台北內湖" ,入住日期 == "2023-10-21"
+CHECK2<-
+  data_raw_1 %>%
+  filter(飯店 == "台北內湖" & 
+           入住日期 == "2023-10-21")
+#-------------------------------------------------------------------------------
+
+
+
+
+test_20231110_all<-
+  data_raw_1%>%
+  # 結合兩表來新增飯店總房數
+  left_join(room_total , by = "飯店") %>%
+  mutate(入住日期 = as.character(入住日期))%>%
+  # 利用check_in對照room_total的日期，因為RN目前是用check_in算的，要一致。
+  left_join(rooms , by = c("check_in"="date","飯店"="館_縮寫"))
+
+# 檢查是否對應完整
+table(is.na(test_20231110_all$maintain_rooms))
+which(is.na(test_20231110_all$maintain_rooms))
+test_20231110_all[126284,"訂單編號"]
+# 6WX2O3這筆訂單在2022-12-12時預訂了2023-09-24入住，由於建北館至5/31後就沒有了，所以刪除該訂單。
+test_20231110_all<-test_20231110_all[-126284,]
+#-------------------------------------------------------------------------------
+
+
+
+# maintain_rooms丟入主要table後，繼續：
+test_20231110_all_1<-
+  test_20231110_all%>%
+  mutate(當天開賣房間數 = 飯店總房數 - maintain_rooms) %>%
+  # 檢查自己算的"當天開賣房間數"跟availble_rooms是否一樣?
+  # mutate(check = case_when(當天開賣房間數 == available_rooms ~ 1,
+  #                          TRUE ~  0))
+  # 20231113：有落差，可能是因為用check_in和入住日期而造成的。
+  
+  
+  # 因為同一天可能有多筆資料，而"當天開賣房間"不能北重複計算到，所以：
+  
+  
+  
+  group_by(area_rank,年月,飯店,每月天數) %>%
+  summarise(訂單數 = n_distinct(訂單編號),
+            RN = n(),
+            ADR = round(mean(營收_日)),
+            每月開賣總房數 = sum(當天開賣房間數)
+  ) %>%
+  mutate(OCC = round((RN/(每月開賣總房數)),4))%>%
+  as.data.frame() %>%
+  melt(.,id.vars = c('年月','飯店','area_rank'),measure.vars =c('訂單數','RN','ADR','OCC'))%>%
+  cast(飯店+ area_rank~年月+variable,
+       value = 'value',
+       fill=0,
+       fun.aggregate=list) %>%
+  mutate_at(vars(-飯店),~replace(.,is.na(.),0))%>%
+  filter(!is.na(飯店))%>%
+  arrange(area_rank)
+
+
+
+
+#-------------------------------------------------------------------------------
+write_xlsx(All_20231110,
+           paste0('./',Sys.Date(),'_','全館2023_1到11月的訂單數(CheckIn)、ADR、RN、OCC','.xlsx'),
+           col_names = T)
+
+
+
